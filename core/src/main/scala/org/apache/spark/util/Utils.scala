@@ -29,6 +29,7 @@ import scala.collection.mutable.ArrayBuffer
 import scala.io.Source
 import scala.reflect.ClassTag
 import scala.util.Try
+import scala.util.control.{ControlThrowable, NonFatal}
 
 import com.google.common.io.Files
 import com.google.common.util.concurrent.ThreadFactoryBuilder
@@ -41,12 +42,10 @@ import org.apache.spark.{Logging, SecurityManager, SparkConf, SparkException}
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.serializer.{DeserializationStream, SerializationStream, SerializerInstance}
 
-
 /**
  * Various utility methods used by Spark.
  */
 private[spark] object Utils extends Logging {
-
   val random = new Random()
 
   def sparkBin(sparkHome: String, which: String): File = {
@@ -587,15 +586,17 @@ private[spark] object Utils extends Logging {
    * Don't follow directories if they are symlinks.
    */
   def deleteRecursively(file: File) {
-    if ((file.isDirectory) && !isSymlink(file)) {
-      for (child <- listFilesSafely(file)) {
-        deleteRecursively(child)
+    if (file != null) {
+      if ((file.isDirectory) && !isSymlink(file)) {
+        for (child <- listFilesSafely(file)) {
+          deleteRecursively(child)
+        }
       }
-    }
-    if (!file.delete()) {
-      // Delete can also fail if the file simply did not exist
-      if (file.exists()) {
-        throw new IOException("Failed to delete: " + file.getAbsolutePath)
+      if (!file.delete()) {
+        // Delete can also fail if the file simply did not exist
+        if (file.exists()) {
+          throw new IOException("Failed to delete: " + file.getAbsolutePath)
+        }
       }
     }
   }
@@ -851,7 +852,7 @@ private[spark] object Utils extends Logging {
   /**
    * Clone an object using a Spark serializer.
    */
-  def clone[T](value: T, serializer: SerializerInstance): T = {
+  def clone[T: ClassTag](value: T, serializer: SerializerInstance): T = {
     serializer.deserialize[T](serializer.serialize(value))
   }
 
@@ -1081,5 +1082,73 @@ private[spark] object Utils extends Logging {
    */
   def isTesting = {
     sys.env.contains("SPARK_TESTING") || sys.props.contains("spark.testing")
+  }
+
+  /**
+   * Strip the directory from a path name
+   */
+  def stripDirectory(path: String): String = {
+    path.split(File.separator).last
+  }
+
+  /**
+   * Wait for a process to terminate for at most the specified duration.
+   * Return whether the process actually terminated after the given timeout.
+   */
+  def waitForProcess(process: Process, timeoutMs: Long): Boolean = {
+    var terminated = false
+    val startTime = System.currentTimeMillis
+    while (!terminated) {
+      try {
+        process.exitValue
+        terminated = true
+      } catch {
+        case e: IllegalThreadStateException =>
+          // Process not terminated yet
+          if (System.currentTimeMillis - startTime > timeoutMs) {
+            return false
+          }
+          Thread.sleep(100)
+      }
+    }
+    true
+  }
+
+  /**
+   * Return the stderr of a process after waiting for the process to terminate.
+   * If the process does not terminate within the specified timeout, return None.
+   */
+  def getStderr(process: Process, timeoutMs: Long): Option[String] = {
+    val terminated = Utils.waitForProcess(process, timeoutMs)
+    if (terminated) {
+      Some(Source.fromInputStream(process.getErrorStream).getLines().mkString("\n"))
+    } else {
+      None
+    }
+  }
+
+  /** 
+   * Executes the given block, printing and re-throwing any uncaught exceptions.
+   * This is particularly useful for wrapping code that runs in a thread, to ensure
+   * that exceptions are printed, and to avoid having to catch Throwable.
+   */
+  def logUncaughtExceptions[T](f: => T): T = {
+    try {
+      f
+    } catch {
+      case t: Throwable =>
+        logError(s"Uncaught exception in thread ${Thread.currentThread().getName}", t)
+        throw t
+    }
+  }
+
+  /** Returns true if the given exception was fatal. See docs for scala.util.control.NonFatal. */
+  def isFatalError(e: Throwable): Boolean = {
+    e match {
+      case NonFatal(_) | _: InterruptedException | _: NotImplementedError | _: ControlThrowable =>
+        false
+      case _ =>
+        true
+    }
   }
 }

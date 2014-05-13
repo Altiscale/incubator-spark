@@ -39,17 +39,12 @@
 # 5) ./bin/spark-shell --master spark://my-master-ip:7077
 #
 
+set -o pipefail
+set -e
+
 # Figure out where the Spark framework is installed
 FWDIR="$(cd `dirname $0`; pwd)"
 DISTDIR="$FWDIR/dist"
-
-set -o pipefail
-VERSION=$(mvn help:evaluate -Dexpression=project.version 2>/dev/null | grep -v "INFO" | tail -n 1)
-if [ $? != 0 ]; then
-    echo -e "You need Maven installed to build Spark."
-    echo -e "Download Maven from https://maven.apache.org/"
-    exit -1;
-fi
 
 if [ -z "$JAVA_HOME" ]; then
   echo "Error: JAVA_HOME is not set, cannot proceed."
@@ -59,10 +54,17 @@ fi
 JAVA_CMD="$JAVA_HOME"/bin/java
 JAVA_VERSION=$("$JAVA_CMD" -version 2>&1)
 if ! [[ "$JAVA_VERSION" =~ "1.6" ]]; then
-  echo "Error: JAVA_HOME must point to a JDK 6 installation (see SPARK-1703)."
+  echo "***NOTE***: JAVA_HOME is not set to a JDK 6 installation. The resulting"
+  echo "            distribution will not support Java 6. See SPARK-1703."
   echo "Output from 'java -version' was:"
   echo "$JAVA_VERSION"
-  exit -1
+fi
+
+VERSION=$(mvn help:evaluate -Dexpression=project.version 2>/dev/null | grep -v "INFO" | tail -n 1)
+if [ $? != 0 ]; then
+    echo -e "You need Maven installed to build Spark."
+    echo -e "Download Maven from https://maven.apache.org/"
+    exit -1;
 fi
 
 # Initialize defaults
@@ -169,8 +171,20 @@ echo "Spark $VERSION built for Hadoop $SPARK_HADOOP_VERSION" > "$DISTDIR/RELEASE
 cp $FWDIR/assembly/target/scala*/*assembly*hadoop*.jar "$DISTDIR/lib/"
 cp $FWDIR/examples/target/scala*/spark-examples*.jar "$DISTDIR/lib/"
 
+# Copy example sources (needed for python and SQL)
+mkdir -p "$DISTDIR/examples/src/main"
+cp -r $FWDIR/examples/src/main "$DISTDIR/examples/src/" 
+
 if [ "$SPARK_HIVE" == "true" ]; then
   cp $FWDIR/lib_managed/jars/datanucleus*.jar "$DISTDIR/lib/"
+fi
+
+# Copy license and ASF files
+cp "$FWDIR/LICENSE" "$DISTDIR"
+cp "$FWDIR/NOTICE" "$DISTDIR"
+
+if [ -e $FWDIR/CHANGES.txt ]; then
+  cp "$FWDIR/CHANGES.txt" "$DISTDIR"
 fi
 
 # Copy other things
@@ -180,6 +194,7 @@ cp "$FWDIR"/conf/slaves "$DISTDIR"/conf
 cp -r "$FWDIR/bin" "$DISTDIR"
 cp -r "$FWDIR/python" "$DISTDIR"
 cp -r "$FWDIR/sbin" "$DISTDIR"
+cp -r "$FWDIR/ec2" "$DISTDIR"
 
 # Download and copy in tachyon, if requested
 if [ "$SPARK_TACHYON" == "true" ]; then
@@ -189,7 +204,7 @@ if [ "$SPARK_TACHYON" == "true" ]; then
   TMPD=`mktemp -d 2>/dev/null || mktemp -d -t 'disttmp'`
 
   pushd $TMPD > /dev/null
-  echo "Fetchting tachyon tgz"
+  echo "Fetching tachyon tgz"
   wget "$TACHYON_URL"
 
   tar xf "tachyon-${TACHYON_VERSION}-bin.tar.gz"

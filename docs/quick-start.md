@@ -9,18 +9,18 @@ title: Quick Start
 This tutorial provides a quick introduction to using Spark. We will first introduce the API through Spark's interactive Scala shell (don't worry if you don't know Scala -- you will not need much for this), then show how to write standalone applications in Scala, Java, and Python.
 See the [programming guide](scala-programming-guide.html) for a more complete reference.
 
-To follow along with this guide, you only need to have successfully built Spark on one machine. Simply go into your Spark directory and run:
-
-{% highlight bash %}
-$ sbt/sbt assembly
-{% endhighlight %}
+To follow along with this guide, first download a packaged release of Spark from the
+[Spark website](http://spark.apache.org/downloads.html). Since we won't be using HDFS,
+you can download a package for any version of Hadoop.
 
 # Interactive Analysis with the Spark Shell
 
 ## Basics
 
 Spark's interactive shell provides a simple way to learn the API, as well as a powerful tool to analyze datasets interactively.
-Start the shell by running `./bin/spark-shell` in the Spark directory.
+Start the shell by running the following in the Spark directory.
+
+    ./bin/spark-shell
 
 Spark's primary abstraction is a distributed collection of items called a Resilient Distributed Dataset (RDD). RDDs can be created from Hadoop InputFormats (such as HDFS files) or by transforming other RDDs. Let's make a new RDD from the text of the README file in the Spark source directory:
 
